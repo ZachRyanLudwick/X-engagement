@@ -97,4 +97,51 @@ export const authService = {
       throw new Error(error.response?.data?.detail || 'Failed to remove Twitter account');
     }
   },
+
+  // New methods for Twitter OAuth-like authentication
+  startTwitterAuth: async () => {
+    try {
+      const response = await api.post('/user/auth/twitter/request');
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.detail || 'Failed to start Twitter authentication');
+    }
+  },
+
+  checkTwitterAuthStatus: async (requestId) => {
+    try {
+      const response = await api.get(`/user/auth/twitter/status/${requestId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.detail || 'Failed to check Twitter authentication status');
+    }
+  },
+
+  completeTwitterAuth: async (requestId, credentials) => {
+    try {
+      const response = await api.post(`/user/auth/twitter/authenticate/${requestId}`, credentials);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.detail || 'Failed to complete Twitter authentication');
+    }
+  },
+
+  getTwitterAccounts: async () => {
+    try {
+      const response = await api.get('/user/twitter-accounts');
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.detail || 'Failed to get Twitter accounts');
+    }
+  },
+
+  hasLinkedTwitterAccount: async () => {
+    try {
+      const accounts = await authService.getTwitterAccounts();
+      return accounts && accounts.length > 0;
+    } catch (error) {
+      console.error('Error checking Twitter accounts:', error);
+      return false;
+    }
+  }
 };

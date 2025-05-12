@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { twitterService } from '../services/twitterService';
+import { authService } from '../services/authService';
 import { useAuth } from '../hooks/useAuth';
+import TwitterAuthModal from '../components/TwitterAuthModal';
 
 const Analytics = () => {
   const [timeframe, setTimeframe] = useState('week');
@@ -13,18 +15,48 @@ const Analytics = () => {
   });
   const [twitterUsername, setTwitterUsername] = useState('');
   const [error, setError] = useState(null);
+  const [hasTwitterAccount, setHasTwitterAccount] = useState(false);
+  const [isTwitterAuthModalOpen, setIsTwitterAuthModalOpen] = useState(false);
   const { currentUser } = useAuth();
+  
+  // Check if user has linked Twitter account
+  useEffect(() => {
+    const checkTwitterAccount = async () => {
+      try {
+        const hasAccount = await authService.hasLinkedTwitterAccount();
+        setHasTwitterAccount(hasAccount);
+      } catch (err) {
+        console.error('Error checking Twitter account:', err);
+        setHasTwitterAccount(false);
+      }
+    };
+    
+    if (currentUser) {
+      checkTwitterAccount();
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
       setLoading(true);
       setError(null);
       
+      // If user doesn't have a linked Twitter account, don't fetch data
+      if (!hasTwitterAccount) {
+        setLoading(false);
+        return;
+      }
+      
       try {
         // Get the Twitter username from user settings or use a default
-        const username = currentUser?.settings?.twitter_username || 
-                        (currentUser?.accounts && currentUser.accounts.length > 0 ? 
-                          currentUser.accounts[0].username : 'twitter');
+        const accounts = await authService.getTwitterAccounts();
+        const username = accounts && accounts.length > 0 ? accounts[0].username : null;
+        
+        if (!username) {
+          setError('No Twitter account found. Please link your Twitter account.');
+          setLoading(false);
+          return;
+        }
         
         setTwitterUsername(username);
         
@@ -70,17 +102,13 @@ const Analytics = () => {
       } catch (error) {
         console.error('Error fetching analytics:', error);
         setError('Failed to load analytics data. Please try again later.');
-        
-        // Fallback to mock data
-        const mockData = generateMockData(timeframe);
-        setAnalyticsData(mockData);
       } finally {
         setLoading(false);
       }
     };
     
     fetchAnalytics();
-  }, [timeframe, currentUser]);
+  }, [timeframe, currentUser, hasTwitterAccount]);
 
   // Generate time series data from tweets
   const generateTimeSeriesData = (tweets, timeframe) => {
@@ -319,6 +347,38 @@ const Analytics = () => {
           </div>
         </div>
       </div>
+      
+      {/* Twitter Account Prompt */}
+      {!hasTwitterAccount && !loading && (
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3 flex-grow">
+              <p className="text-sm text-blue-700 mb-2">
+                You need to link your X (Twitter) account to see your real analytics data.
+              </p>
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => setIsTwitterAuthModalOpen(true)}
+                  className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
+                >
+                  Link Twitter Account
+                </button>
+                <a 
+                  href="/settings" 
+                  className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200"
+                >
+                  Go to Settings
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Error message */}
       {error && (

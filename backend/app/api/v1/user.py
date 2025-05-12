@@ -9,13 +9,16 @@ from app.models.user import (
     UserSettings, TonePreset, AccountSettings, ScheduleSettings, 
     AnalyticsSettings, UserProfile, AuthRequest, AuthResponse
 )
-from app.models.twitter import TwitterCredentials
+from app.models.twitter import TwitterCredentials, TwitterAuthRequest, TwitterAuthResponse
 from app.services.user_service import (
     authenticate_user, create_user, get_user_by_id, create_auth_response,
     update_user_twitter_account, get_user_twitter_accounts, get_user_twitter_account,
     remove_user_twitter_account, set_default_twitter_account
 )
-from app.services.twitter_auth_service import authenticate_and_link_twitter
+from app.services.twitter_auth_service import (
+    authenticate_and_link_twitter, create_twitter_auth_request, 
+    get_twitter_auth_status, process_twitter_auth_request
+)
 
 router = APIRouter()
 
@@ -226,6 +229,98 @@ async def update_ui_preferences(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update UI preferences: {str(e)}"
+        )
+
+@router.post("/auth/twitter/request", response_model=TwitterAuthRequest)
+async def request_twitter_auth(current_user: UserProfile = Depends(get_current_user)):
+    """
+    Start the Twitter authentication process.
+    Returns a request ID that can be used to track the authentication process.
+    """
+    try:
+        request_id = await create_twitter_auth_request(current_user.user_id)
+        return {
+            "request_id": request_id,
+            "status": "pending",
+            "error": None
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create Twitter authentication request: {str(e)}"
+        )
+
+@router.get("/auth/twitter/status/{request_id}", response_model=TwitterAuthResponse)
+async def check_twitter_auth_status(request_id: str):
+    """Check the status of a Twitter authentication request."""
+    try:
+        auth_status = await get_twitter_auth_status(request_id)
+        
+        if auth_status["status"] == "not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Authentication request not found"
+            )
+        
+        response = {
+            "success": auth_status["status"] == "completed",
+            "request_id": request_id,
+            "status": auth_status["status"],
+            "error": auth_status.get("error")
+        }
+        
+        # Add Twitter data if available
+        if auth_status.get("twitter_data"):
+            twitter_data = auth_status["twitter_data"]
+            response["username"] = twitter_data.get("username")
+            response["display_name"] = twitter_data.get("display_name")
+            response["profile_image_url"] = twitter_data.get("profile_image_url")
+        
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check Twitter authentication status: {str(e)}"
+        )
+
+@router.post("/auth/twitter/authenticate/{request_id}", response_model=TwitterAuthResponse)
+async def authenticate_with_twitter(
+    request_id: str,
+    credentials: TwitterCredentials = Body(...)
+):
+    """
+    Authenticate with Twitter using the provided credentials.
+    This is called after the user has entered their Twitter credentials.
+    """
+    try:
+        success = await process_twitter_auth_request(request_id, credentials)
+        
+        if not success:
+            auth_status = await get_twitter_auth_status(request_id)
+            return {
+                "success": False,
+                "request_id": request_id,
+                "status": auth_status["status"],
+                "error": auth_status.get("error") or "Authentication failed"
+            }
+        
+        auth_status = await get_twitter_auth_status(request_id)
+        twitter_data = auth_status.get("twitter_data", {})
+        
+        return {
+            "success": True,
+            "request_id": request_id,
+            "status": "completed",
+            "username": twitter_data.get("username"),
+            "display_name": twitter_data.get("display_name"),
+            "profile_image_url": twitter_data.get("profile_image_url")
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Twitter authentication failed: {str(e)}"
         )
 
 @router.post("/auth/twitter", response_model=AuthResponse)

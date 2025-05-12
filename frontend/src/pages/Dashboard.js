@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { twitterService } from '../services/twitterService';
 import { useAuth } from '../hooks/useAuth';
 import { Link } from 'react-router-dom';
+import { authService } from '../services/authService';
 
 const Dashboard = () => {
   const [recentPosts, setRecentPosts] = useState([]);
@@ -13,22 +14,87 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const { currentUser } = useAuth();
   const [twitterUsername, setTwitterUsername] = useState('');
+  const [twitterAccounts, setTwitterAccounts] = useState([]);
   const [error, setError] = useState(null);
+  const [showAccountPrompt, setShowAccountPrompt] = useState(false);
 
   useEffect(() => {
-    // Fetch real data from the API
-    const fetchDashboardData = async () => {
+    // Fetch Twitter accounts and dashboard data
+    const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
         
-        // Get the Twitter username from user settings or use a default
-        const username = currentUser?.settings?.twitter_username || 
-                        (currentUser?.accounts && currentUser.accounts.length > 0 ? 
-                          currentUser.accounts[0].username : 'twitter');
+        // First, try to get Twitter accounts
+        try {
+          const accounts = await authService.getTwitterAccounts();
+          if (accounts && accounts.length > 0) {
+            setTwitterAccounts(accounts);
+            
+            // Find default account or use the first one
+            const defaultAccount = accounts.find(acc => acc.is_default) || accounts[0];
+            setTwitterUsername(defaultAccount.username);
+            
+            // Now fetch timeline data for this account
+            await fetchTimelineData(defaultAccount.username);
+            setShowAccountPrompt(false);
+            return;
+          } else {
+            // No accounts found from API
+            setShowAccountPrompt(true);
+          }
+        } catch (error) {
+          console.error('Error fetching Twitter accounts:', error);
+          
+          // Check if we have accounts in the current user object as fallback
+          if (currentUser?.accounts && currentUser.accounts.length > 0) {
+            const username = currentUser.accounts[0].username;
+            setTwitterUsername(username);
+            await fetchTimelineData(username);
+            setShowAccountPrompt(false);
+            return;
+          }
+          
+          // No accounts found, show prompt
+          setShowAccountPrompt(true);
+        }
         
-        setTwitterUsername(username);
+        // If we get here, we don't have any accounts, use mock data
+        setRecentPosts([
+          { id: 1, content: 'Just launched our new product!', date: '2023-10-15', engagement: 245 },
+          { id: 2, content: 'Thanks for all the support on our journey.', date: '2023-10-12', engagement: 189 },
+          { id: 3, content: 'Exciting news coming next week! Stay tuned.', date: '2023-10-10', engagement: 321 }
+        ]);
         
+        setStats({
+          totalPosts: 42,
+          engagement: 1876,
+          scheduledPosts: 5
+        });
+        
+      } catch (error) {
+        console.error('Error in dashboard data flow:', error);
+        setError('Failed to load dashboard data. Please try again later.');
+        
+        // Fallback to mock data
+        setRecentPosts([
+          { id: 1, content: 'Just launched our new product!', date: '2023-10-15', engagement: 245 },
+          { id: 2, content: 'Thanks for all the support on our journey.', date: '2023-10-12', engagement: 189 },
+          { id: 3, content: 'Exciting news coming next week! Stay tuned.', date: '2023-10-10', engagement: 321 }
+        ]);
+        
+        setStats({
+          totalPosts: 42,
+          engagement: 1876,
+          scheduledPosts: 5
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    const fetchTimelineData = async (username) => {
+      try {
         // Fetch recent tweets from the timeline
         const tweets = await twitterService.fetchTimeline(username, 5);
         
@@ -55,29 +121,13 @@ const Dashboard = () => {
           engagement: totalEngagement,
           scheduledPosts: scheduledCount
         });
-        
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        setError('Failed to load dashboard data. Please try again later.');
-        
-        // Fallback to mock data if API fails
-        setRecentPosts([
-          { id: 1, content: 'Just launched our new product!', date: '2023-10-15', engagement: 245 },
-          { id: 2, content: 'Thanks for all the support on our journey.', date: '2023-10-12', engagement: 189 },
-          { id: 3, content: 'Exciting news coming next week! Stay tuned.', date: '2023-10-10', engagement: 321 }
-        ]);
-        
-        setStats({
-          totalPosts: 42,
-          engagement: 1876,
-          scheduledPosts: 5
-        });
-      } finally {
-        setLoading(false);
+        console.error('Error fetching timeline data:', error);
+        throw error;
       }
     };
 
-    fetchDashboardData();
+    fetchData();
   }, [currentUser]);
 
   if (loading) {
@@ -98,6 +148,24 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+      
+      {/* Account Prompt */}
+      {showAccountPrompt && (
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-blue-700">
+                No Twitter account linked. Please <Link to="/settings" className="font-medium underline">link your Twitter account</Link> to see your real data.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">

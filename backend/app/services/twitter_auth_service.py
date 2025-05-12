@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Dict, Optional, Tuple
+import uuid
+from typing import Dict, Optional, Tuple, List
 from playwright.async_api import async_playwright, Page
 from app.models.twitter import TwitterCredentials
 from app.models.user import UserProfile, AccountSettings
@@ -10,12 +11,99 @@ from app.services.user_service import get_user_by_id, update_user_twitter_accoun
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Store pending auth requests
+# In a production app, use a database or Redis
+PENDING_AUTH_REQUESTS = {}
+
 class TwitterAuthService:
     """Service for Twitter authentication using browser automation."""
     
     def __init__(self):
         self.base_url = "https://twitter.com"
         self.login_url = "https://twitter.com/i/flow/login"
+        self.callback_url = "http://localhost:3000/auth/twitter/callback"  # Frontend callback URL
+    
+    async def create_auth_request(self, user_id: str) -> str:
+        """
+        Create a new authentication request for X (Twitter) OAuth-like flow.
+        Returns a request ID that can be used to track the authentication process.
+        """
+        request_id = str(uuid.uuid4())
+        PENDING_AUTH_REQUESTS[request_id] = {
+            "user_id": user_id,
+            "status": "pending",
+            "created_at": asyncio.get_event_loop().time(),
+            "twitter_data": None,
+            "error": None
+        }
+        return request_id
+    
+    async def get_auth_request_status(self, request_id: str) -> Dict:
+        """Get the status of an authentication request."""
+        if request_id not in PENDING_AUTH_REQUESTS:
+            return {"status": "not_found"}
+        
+        # Clean up old requests (older than 15 minutes)
+        current_time = asyncio.get_event_loop().time()
+        for req_id in list(PENDING_AUTH_REQUESTS.keys()):
+            if current_time - PENDING_AUTH_REQUESTS[req_id]["created_at"] > 900:  # 15 minutes
+                del PENDING_AUTH_REQUESTS[req_id]
+        
+        return PENDING_AUTH_REQUESTS[request_id]
+    
+    async def process_auth_request(self, request_id: str, username: str, password: str, two_factor_token: Optional[str] = None) -> bool:
+        """
+        Process an authentication request with Twitter credentials.
+        This is called after the user has entered their Twitter credentials.
+        """
+        if request_id not in PENDING_AUTH_REQUESTS:
+            return False
+        
+        auth_request = PENDING_AUTH_REQUESTS[request_id]
+        auth_request["status"] = "processing"
+        
+        try:
+            # Authenticate with Twitter
+            success, twitter_data, error_message = await self.authenticate_with_twitter(
+                username, password, two_factor_token
+            )
+            
+            if not success:
+                auth_request["status"] = "failed"
+                auth_request["error"] = error_message
+                return False
+            
+            # Store Twitter data in the auth request
+            auth_request["twitter_data"] = twitter_data
+            auth_request["status"] = "completed"
+            
+            # Get user ID from the auth request
+            user_id = auth_request["user_id"]
+            
+            # Create account settings
+            account_settings = AccountSettings(
+                username=twitter_data["username"],
+                display_name=twitter_data["display_name"],
+                profile_image_url=twitter_data["profile_image_url"],
+                is_active=True,
+                auto_login=True,
+                session_data=twitter_data["session_data"]
+            )
+            
+            # Update user with Twitter account
+            success = await update_user_twitter_account(user_id, account_settings)
+            if not success:
+                auth_request["status"] = "failed"
+                auth_request["error"] = "Failed to update user with Twitter account"
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing auth request: {str(e)}")
+            auth_request["status"] = "failed"
+            auth_request["error"] = f"Authentication error: {str(e)}"
+            return False
     
     async def authenticate_with_twitter(self, username: str, password: str, two_factor_token: Optional[str] = None) -> Tuple[bool, Dict, Optional[str]]:
         """
@@ -190,7 +278,7 @@ class TwitterAuthService:
         except Exception:
             return None
 
-async def authenticate_and_link_twitter(user_id: str, twitter_credentials: TwitterCredentials) -> Tuple[bool, Optional[str]]:
+async def authenticate_and_link_twitter(user_id: str, credentials: TwitterCredentials) -> Tuple[bool, Optional[str]]:
     """
     Authenticate with Twitter and link the account to the user.
     Returns a tuple of (success, error_message)
@@ -199,9 +287,9 @@ async def authenticate_and_link_twitter(user_id: str, twitter_credentials: Twitt
     
     # Authenticate with Twitter
     success, twitter_data, error_message = await twitter_auth_service.authenticate_with_twitter(
-        twitter_credentials.username,
-        twitter_credentials.password,
-        twitter_credentials.two_factor_token
+        credentials.username,
+        credentials.password,
+        credentials.two_factor_token
     )
     
     if not success:
@@ -228,3 +316,23 @@ async def authenticate_and_link_twitter(user_id: str, twitter_credentials: Twitt
         return False, "Failed to update user with Twitter account"
     
     return True, None
+
+async def create_twitter_auth_request(user_id: str) -> str:
+    """Create a new Twitter authentication request."""
+    twitter_auth_service = TwitterAuthService()
+    return await twitter_auth_service.create_auth_request(user_id)
+
+async def get_twitter_auth_status(request_id: str) -> Dict:
+    """Get the status of a Twitter authentication request."""
+    twitter_auth_service = TwitterAuthService()
+    return await twitter_auth_service.get_auth_request_status(request_id)
+
+async def process_twitter_auth_request(request_id: str, credentials: TwitterCredentials) -> bool:
+    """Process a Twitter authentication request with credentials."""
+    twitter_auth_service = TwitterAuthService()
+    return await twitter_auth_service.process_auth_request(
+        request_id,
+        credentials.username,
+        credentials.password,
+        credentials.two_factor_token
+    )

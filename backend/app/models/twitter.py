@@ -10,6 +10,22 @@ class TwitterCredentials(BaseModel):
     two_factor_token: Optional[str] = Field(None, description="Two-factor authentication token")
     session_token: Optional[str] = Field(None, description="Session token for persistent login")
 
+class TwitterAuthRequest(BaseModel):
+    """Model for Twitter authentication request."""
+    request_id: str = Field(..., description="Authentication request ID")
+    status: str = Field(..., description="Status of the authentication request")
+    error: Optional[str] = Field(None, description="Error message if authentication failed")
+
+class TwitterAuthResponse(BaseModel):
+    """Response for Twitter authentication."""
+    success: bool = Field(..., description="Whether the authentication was successful")
+    request_id: str = Field(..., description="Authentication request ID")
+    status: str = Field(..., description="Status of the authentication request")
+    error: Optional[str] = Field(None, description="Error message if authentication failed")
+    username: Optional[str] = Field(None, description="Twitter username if authentication was successful")
+    display_name: Optional[str] = Field(None, description="Twitter display name if authentication was successful")
+    profile_image_url: Optional[str] = Field(None, description="Twitter profile image URL if authentication was successful")
+
 class Media(BaseModel):
     """Model representing media in a tweet."""
     media_id: str = Field(..., description="Media ID")
