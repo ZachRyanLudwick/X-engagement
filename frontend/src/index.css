@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  @apply bg-twitter-white text-twitter-black;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Custom X-style components */
+@layer components {
+  .btn-primary {
+    @apply bg-twitter-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-100 text-twitter-blue border border-twitter-blue font-bold py-2 px-4 rounded-full transition-colors;
+  }
+  
+  .btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-full transition-colors;
+  }
+  
+  .tweet-card {
+    @apply bg-white p-4 rounded-xl border border-twitter-extra-light-gray shadow-tweet mb-4;
+  }
+  
+  .input-field {
+    @apply w-full rounded-lg border-twitter-light-gray focus:border-twitter-blue focus:ring focus:ring-blue-200 transition-all;
+  }
+  
+  .sidebar-link {
+    @apply flex items-center p-3 text-gray-700 hover:bg-twitter-extra-light-gray hover:text-twitter-blue rounded-lg transition-colors;
+  }
+  
+  .sidebar-link-active {
+    @apply flex items-center p-3 bg-blue-50 text-twitter-blue font-medium rounded-lg;
+  }
+}
